@@ -1,0 +1,9 @@
+{
+  "inputs": {
+    "product_name": "白色高腰直筒裤",
+    "special_instructions": "突出通勤场景和显腿长效果",
+    "viral_reference": ""
+  },
+  "response_mode": "blocking",
+  "user": "fashion-agent-local-user"
+}

@@ -1,0 +1,7 @@
+{
+  "inputs": {
+    "video_url": "https://example.com/viral-video"
+  },
+  "response_mode": "blocking",
+  "user": "fashion-agent-local-user"
+}

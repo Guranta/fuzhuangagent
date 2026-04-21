@@ -1,0 +1,44 @@
+[
+  {
+    "case_id": "CASE-001",
+    "request": {
+      "product_name": "白色高腰直筒裤",
+      "special_instructions": "突出通勤和显腿长",
+      "platform": "抖音",
+      "target_duration": 45
+    },
+    "expected": {
+      "must_have_sections": ["视觉钩子", "内容输出", "干货分享", "总结"],
+      "must_include_product_facts": ["高腰", "直筒", "通勤"],
+      "must_not_invent": ["不存在的颜色", "不存在的尺码"]
+    }
+  },
+  {
+    "case_id": "CASE-002",
+    "request": {
+      "product_name": "黑色收腰连衣裙",
+      "special_instructions": "强调约会场景和显瘦效果",
+      "platform": "小红书",
+      "target_duration": 40
+    },
+    "expected": {
+      "must_have_sections": ["视觉钩子", "内容输出", "干货分享", "总结"],
+      "must_include_product_facts": ["收腰", "A字", "约会"],
+      "must_not_invent": ["不存在的面料"]
+    }
+  },
+  {
+    "case_id": "CASE-003",
+    "request": {
+      "product_name": "卡其色风衣外套",
+      "special_instructions": "强调春秋通勤和防水面料",
+      "platform": "抖音",
+      "target_duration": 55
+    },
+    "expected": {
+      "must_have_sections": ["视觉钩子", "内容输出", "干货分享", "总结"],
+      "must_include_product_facts": ["卡其色", "防水", "通勤"],
+      "must_not_invent": ["不存在的折扣"]
+    }
+  }
+]
