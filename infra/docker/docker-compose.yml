@@ -138,6 +138,9 @@ services:
     image: langgenius/dify-api:latest
     container_name: fashion-agent-dify-api
     restart: unless-stopped
+    entrypoint: ["/bin/bash", "/custom-entrypoint.sh"]
+    volumes:
+      - ./dify-entrypoint.sh:/custom-entrypoint.sh:ro
     env_file:
       - ../env/.env
     depends_on:
