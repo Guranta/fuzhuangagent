@@ -2,103 +2,153 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: fashion-agent-postgres
+    restart: unless-stopped
+    env_file:
+      - ../env/.env
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-fashion_agent}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_pg_password}
-    ports:
-      - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - fashion_agent_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-fashion_agent}"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    networks:
+      - fashion-agent-net
 
   redis:
     image: redis:7-alpine
     container_name: fashion-agent-redis
-    command: redis-server --appendonly yes
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
+    env_file:
+      - ../env/.env
+    command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - redis_data:/data
+      - fashion_agent_redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 5s
+    networks:
+      - fashion-agent-net
 
   qdrant:
     image: qdrant/qdrant:latest
     container_name: fashion-agent-qdrant
-    ports:
-      - "6333:6333"
-      - "6334:6334"
+    restart: unless-stopped
+    env_file:
+      - ../env/.env
     volumes:
-      - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - fashion_agent_qdrant_data:/qdrant/storage
+    expose:
+      - "6333"
+      - "6334"
+    networks:
+      - fashion-agent-net
 
   minio:
     image: minio/minio:latest
     container_name: fashion-agent-minio
-    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    env_file:
+      - ../env/.env
+    command: ["server", "/data", "--console-address", ":9001"]
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
-    ports:
-      - "9000:9000"
-      - "9001:9001"
     volumes:
-      - minio_data:/data
+      - fashion_agent_minio_data:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 15s
+    networks:
+      - fashion-agent-net
+
+  # minio-init: 创建 bucket 的辅助容器（如镜像拉取失败可注释掉）
+  # 首次部署后 bucket 会被持久化到 volume，之后不再需要
+  minio-init:
+    image: minio/mc:latest
+    container_name: fashion-agent-minio-init
+    restart: "no"
+    profiles:
+      - init
+    env_file:
+      - ../env/.env
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY:-minioadmin} ${MINIO_SECRET_KEY:-minioadmin} &&
+        mc mb --ignore-existing local/${MINIO_BUCKET:-fashion-agent}
+    networks:
+      - fashion-agent-net
 
   dify-db:
     image: postgres:15-alpine
     container_name: fashion-agent-dify-db
+    restart: unless-stopped
+    env_file:
+      - ../env/.env
     environment:
       POSTGRES_DB: dify
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_pg_password}
     volumes:
-      - dify_postgres_data:/var/lib/postgresql/data
+      - fashion_agent_dify_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d dify"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    networks:
+      - fashion-agent-net
 
   dify-redis:
     image: redis:7-alpine
     container_name: fashion-agent-dify-redis
-    command: redis-server --appendonly yes
+    restart: unless-stopped
+    env_file:
+      - ../env/.env
+    command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - dify_redis_data:/data
+      - fashion_agent_dify_redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 5s
+    networks:
+      - fashion-agent-net
 
   dify-api:
     image: langgenius/dify-api:latest
     container_name: fashion-agent-dify-api
+    restart: unless-stopped
+    env_file:
+      - ../env/.env
     depends_on:
       dify-db:
         condition: service_healthy
       dify-redis:
         condition: service_healthy
-    env_file:
-      - ../env/.env.example
+      qdrant:
+        condition: service_started
+      minio:
+        condition: service_healthy
     environment:
       DB_USERNAME: postgres
       DB_PASSWORD: ${POSTGRES_PASSWORD:-change_me_pg_password}
@@ -109,9 +159,12 @@ services:
       REDIS_PORT: 6379
       REDIS_USE_SSL: "false"
       SECRET_KEY: ${DIFY_SECRET_KEY:-replace_me}
-      CONSOLE_WEB_URL: http://localhost:${DIFY_WEB_PORT:-3000}
-      SERVICE_API_URL: http://localhost:${DIFY_API_PORT:-5001}
-      APP_WEB_URL: http://localhost:${DIFY_WEB_PORT:-3000}
+      CONSOLE_WEB_URL: https://${DOMAIN:-agent.886668.shop}
+      SERVICE_API_URL: https://${DOMAIN:-agent.886668.shop}
+      APP_WEB_URL: https://${DOMAIN:-agent.886668.shop}
+      CONSOLE_API_URL: https://${DOMAIN:-agent.886668.shop}
+      APP_API_URL: https://${DOMAIN:-agent.886668.shop}
+      RESPECT_XFORWARD_HEADERS_ENABLED: "true"
       STORAGE_TYPE: s3
       S3_ENDPOINT: http://minio:9000
       S3_USE_AWS_MANAGED_IAM: "false"
@@ -120,17 +173,34 @@ services:
       S3_BUCKET_NAME: ${MINIO_BUCKET:-fashion-agent}
       VECTOR_STORE: qdrant
       QDRANT_URL: http://qdrant:6333
-    ports:
-      - "5001:5001"
+      PLUGIN_DAEMON_URL: http://dify-plugin-daemon:5002
+      PLUGIN_DAEMON_API_URL: http://dify-plugin-daemon:5002
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - fashion-agent-net
 
   dify-worker:
     image: langgenius/dify-api:latest
     container_name: fashion-agent-dify-worker
-    depends_on:
-      dify-api:
-        condition: service_started
+    restart: unless-stopped
     env_file:
-      - ../env/.env.example
+      - ../env/.env
+    depends_on:
+      dify-db:
+        condition: service_healthy
+      dify-redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      minio:
+        condition: service_healthy
+      dify-api:
+        condition: service_healthy
     environment:
       MODE: worker
       DB_USERNAME: postgres
@@ -140,7 +210,14 @@ services:
       DB_DATABASE: dify
       REDIS_HOST: dify-redis
       REDIS_PORT: 6379
+      REDIS_USE_SSL: "false"
       SECRET_KEY: ${DIFY_SECRET_KEY:-replace_me}
+      CONSOLE_WEB_URL: https://${DOMAIN:-agent.886668.shop}
+      SERVICE_API_URL: https://${DOMAIN:-agent.886668.shop}
+      APP_WEB_URL: https://${DOMAIN:-agent.886668.shop}
+      CONSOLE_API_URL: https://${DOMAIN:-agent.886668.shop}
+      APP_API_URL: https://${DOMAIN:-agent.886668.shop}
+      RESPECT_XFORWARD_HEADERS_ENABLED: "true"
       STORAGE_TYPE: s3
       S3_ENDPOINT: http://minio:9000
       S3_USE_AWS_MANAGED_IAM: "false"
@@ -149,23 +226,121 @@ services:
       S3_BUCKET_NAME: ${MINIO_BUCKET:-fashion-agent}
       VECTOR_STORE: qdrant
       QDRANT_URL: http://qdrant:6333
+      PLUGIN_DAEMON_URL: http://dify-plugin-daemon:5002
+      PLUGIN_DAEMON_API_URL: http://dify-plugin-daemon:5002
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'worker|celery' >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - fashion-agent-net
+
+  dify-plugin-daemon:
+    image: langgenius/dify-plugin-daemon:latest
+    container_name: fashion-agent-dify-plugin-daemon
+    restart: unless-stopped
+    env_file:
+      - ../env/.env
+    depends_on:
+      dify-db:
+        condition: service_healthy
+      dify-redis:
+        condition: service_healthy
+    environment:
+      DB_USERNAME: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change_me_pg_password}
+      DB_HOST: dify-db
+      DB_PORT: 5432
+      DB_DATABASE: dify
+      REDIS_HOST: dify-redis
+      REDIS_PORT: 6379
+      PLUGIN_DAEMON_KEY: ${DIFY_SECRET_KEY:-replace_me}
+      PLUGIN_DAEMON_EXTERNAL_URL: http://dify-plugin-daemon:5002
+      SERVER_PORT: 5002
+    networks:
+      - fashion-agent-net
 
   dify-web:
     image: langgenius/dify-web:latest
     container_name: fashion-agent-dify-web
+    restart: unless-stopped
+    env_file:
+      - ../env/.env
     depends_on:
       dify-api:
-        condition: service_started
+        condition: service_healthy
     environment:
-      CONSOLE_API_URL: http://localhost:${DIFY_API_PORT:-5001}
-      APP_API_URL: http://localhost:${DIFY_API_PORT:-5001}
+      CONSOLE_API_URL: https://${DOMAIN:-agent.886668.shop}
+      APP_API_URL: https://${DOMAIN:-agent.886668.shop}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://$(hostname):3000 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - fashion-agent-net
+
+  video-service:
+    build:
+      context: ../../services/video-service
+      dockerfile: Dockerfile
+    container_name: fashion-agent-video-service
+    restart: unless-stopped
+    env_file:
+      - ../env/.env
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - fashion-agent-net
+
+  caddy:
+    image: caddy:latest
+    container_name: fashion-agent-caddy
+    restart: unless-stopped
+    env_file:
+      - ../env/.env
+    depends_on:
+      dify-web:
+        condition: service_healthy
+      dify-api:
+        condition: service_healthy
+      video-service:
+        condition: service_healthy
     ports:
-      - "3000:3000"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile
+      - fashion_agent_caddy_data:/data
+      - fashion_agent_caddy_config:/config
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - fashion-agent-net
 
 volumes:
-  postgres_data:
-  redis_data:
-  qdrant_data:
-  minio_data:
-  dify_postgres_data:
-  dify_redis_data:
+  fashion_agent_postgres_data:
+  fashion_agent_redis_data:
+  fashion_agent_qdrant_data:
+  fashion_agent_minio_data:
+  fashion_agent_dify_postgres_data:
+  fashion_agent_dify_redis_data:
+  fashion_agent_caddy_data:
+  fashion_agent_caddy_config:
+
+networks:
+  fashion-agent-net:
+    driver: bridge
